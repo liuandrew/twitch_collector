@@ -15,7 +15,7 @@ import functools
 import math
 import codecs
 from pprint import pprint
-# import os
+import os
 
 #dev
 from importlib import reload
@@ -43,7 +43,7 @@ CHANNEL_LIST = [
   'geekandsundry'
 ]
 
-# logging.basicConfig(format='%(funcName)s:%(lineno)i:%(message)s', level=logging.DEBUG)
+logging.basicConfig(format='%(funcName)s:%(lineno)i:%(message)s', level=logging.DEBUG)
 log = logging.getLogger('twitch_chat')
 # formatter = logging.Formatter('%(funcName)s:%(lineno)i:%(message)s')
 # ch = logging.StreamHandler()
@@ -190,7 +190,7 @@ class TwitchClient(SimpleIRCClient):
         Channel Logs: ${channel}_status
       line - array of values to push as csv
     '''
-    path = DATA_LOCATION + '\\' + file
+    path = os.path.join(DATA_LOCATION, file)
     timestamp = math.floor(time.time())
     line = str(timestamp) + '~|^' + '~|^'.join(line) + '\n'
     with codecs.open(path, 'a', 'utf-8') as f:

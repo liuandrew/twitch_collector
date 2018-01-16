@@ -1,1 +1,4 @@
 bot_status
+__pycache__/*
+__pycache__
+nohup.out
