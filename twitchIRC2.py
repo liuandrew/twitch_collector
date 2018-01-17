@@ -175,6 +175,11 @@ class TwitchClient(SimpleIRCClient):
     self.connection.join(channel)
 
 
+  def part(self, channel):
+    channel = self._hash_channel(channel)
+    self.connection.part(channel)
+
+
   def on_join(self, c, e):
     log.debug('Enter')
     channel = self._unhash_channel(e.target)
@@ -198,9 +203,21 @@ class TwitchClient(SimpleIRCClient):
       'Client-ID': API_ID
     }
     url = 'https://api.twitch.tv/kraken/streams/'
-    url += self._get_channel_id(channel)
-    req = requests.get(url, headers=headers)
-    res = req.json()
+    res = {}
+
+    try:
+      url += self._get_channel_id(channel)
+      req = requests.get(url, headers=headers)
+      res = req.json()
+    except:
+      log.warn('issue during channel update, try again next schedule')
+      if(channel in self.channels and self.channels[channel]['connected'] == True):
+        self.channels[channel]['connected'] = False
+        self.channels[channel]['scheduled'] = True
+        reconnect = functools.partial(self.update_channel_details, channel, join=True)
+        self.scheduler.enter(ATTEMPT_RECONNECT_INTERVAL, 1, reconnect)
+      return None
+
     log.debug(res)
     if('stream' in res and res['stream']):
       if(channel not in self.channels):
@@ -230,6 +247,11 @@ class TwitchClient(SimpleIRCClient):
           'name': channel,
         }
       log.warn('Unable to get number of viewers')
+
+      # part if connected
+      if(self.channels[channel]['connected'] == True):
+        self.part(channel)
+
       self.channels[channel]['connected'] = False
       self.channels[channel]['scheduled'] = True
       reconnect = functools.partial(self.update_channel_details, channel, join=True)
