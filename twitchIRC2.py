@@ -33,7 +33,8 @@ AUTH = 'oauth:vda6o52iw9t75banzz3s13ppaj4u2s'
 API_ID = 'qy2m8ydqa3e0dgnrxuvcxrvg711s5e'
 API_SECRET = '71vepe1xaigqqr9le8ha0w71gtacev'
 VIEWER_UPDATE_INTERVAL = 90
-ATTEMPT_RECONNECT_INTERVAL = 9000
+ATTEMPT_CHANNEL_RECONNECT_INTERVAL = 9000
+ATTEMPT_CONNECTION_RECONNECT_INTERVAL = 120
 TIME_BETWEEN_CONNECTS = 3
 DATA_LOCATION = 'data'
 
@@ -131,12 +132,18 @@ CHANNEL_LIST = [
   'kiwo'
 ]
 
-# logging.basicConfig(format='%(funcName)s:%(lineno)i:%(message)s', level=logging.DEBUG)
+logging.basicConfig(format='%(funcName)s:%(lineno)i:%(message)s', level=logging.DEBUG)
 log = logging.getLogger('twitch_chat')
 # formatter = logging.Formatter('%(funcName)s:%(lineno)i:%(message)s')
 # ch = logging.StreamHandler()
 # ch.setFormatter(formatter)
 # log.addHandler(ch)
+
+
+# Connection loop:
+#   Attempt connection once for each channel in CHANNEL_LIST
+#     on_join => initiate channel in self.channels, update_channel_details
+#       
 
 class TwitchClient(SimpleIRCClient):
   def __init__(self):
@@ -185,11 +192,16 @@ class TwitchClient(SimpleIRCClient):
     channel = self._unhash_channel(e.target)
     if(channel not in self.channels):
       self.channels[channel] = {
-        'name': channel,
-        'connected': True
+        'name': channel
       }
       self.update_channel_details(channel)
+
+    self.channels[channel]['connected'] = True
     
+  def on_part(self, c, e):
+    log.debug('Enter')
+    channel = self._unhash_channel(e.target)
+    self.channels[channel]['connected'] = False
 
   def update_channel_details(self, channel, join=False):
     '''
@@ -204,26 +216,27 @@ class TwitchClient(SimpleIRCClient):
     }
     url = 'https://api.twitch.tv/kraken/streams/'
     res = {}
-
+    channel = self._unhash_channel(channel)
     try:
       url += self._get_channel_id(channel)
       req = requests.get(url, headers=headers)
       res = req.json()
     except:
       log.warn('issue during channel update, try again next schedule')
-      if(channel in self.channels and self.channels[channel]['connected'] == True):
-        self.channels[channel]['connected'] = False
-        self.channels[channel]['scheduled'] = True
-        reconnect = functools.partial(self.update_channel_details, channel, join=True)
-        self.scheduler.enter(ATTEMPT_RECONNECT_INTERVAL, 1, reconnect)
+      if(channel in self.channels 
+        and 'connected' in self.channels[channel]
+        and self.channels[channel]['connected'] == True):
+        self.part(channel)
+      self.channels[channel]['scheduled'] = True
+      reconnect = functools.partial(self.update_channel_details, channel, join=True)
+      self.scheduler.enter(ATTEMPT_CHANNEL_RECONNECT_INTERVAL, 1, reconnect)
       return None
 
-    log.debug(res)
+    # log.debug(res)
     if('stream' in res and res['stream']):
       if(channel not in self.channels):
         self.channels[channel] = {
-          'name': channel,
-          'connected': True
+          'name': channel
         }
       self.channels[channel]['scheduled'] = False
 
@@ -240,22 +253,23 @@ class TwitchClient(SimpleIRCClient):
       self.scheduler.enter(VIEWER_UPDATE_INTERVAL, 1, refresh)
       # reconnect
       if(join == True):
+        print('join == True, rejoining')
         self.join(channel)
     else:
       if(channel not in self.channels):
-        self.chanenls[channel] = {
+        self.channels[channel] = {
           'name': channel,
         }
-      log.warn('Unable to get number of viewers')
+      log.warn('Unable to get number of viewers for channel: {}'.format(channel))
 
       # part if connected
-      if(self.channels[channel]['connected'] == True):
-        self.part(channel)
+      # if('connected' in self.channels[channel] and 
+      #   self.channels[channel]['connected'] == True):
+      self.part(channel)
 
-      self.channels[channel]['connected'] = False
-      self.channels[channel]['scheduled'] = True
       reconnect = functools.partial(self.update_channel_details, channel, join=True)
-      self.scheduler.enter(ATTEMPT_RECONNECT_INTERVAL, 1, reconnect)
+      self.channels[channel]['scheduled'] = True
+      self.scheduler.enter(ATTEMPT_CHANNEL_RECONNECT_INTERVAL, 1, reconnect)
 
     # pretty print channel status
     with open('bot_status', 'w') as f:
@@ -323,7 +337,7 @@ class TwitchClient(SimpleIRCClient):
         self.join(channel)
         channel_joined = True
 
-    # no more channels to attempt
+    # no more channels to attempt if channel_joined is False after looping CHANNEL_LIST
     if(channel_joined):
       self.scheduler.enter(TIME_BETWEEN_CONNECTS, 1, self.join_channel_in_list)
 
@@ -335,6 +349,8 @@ class TwitchClient(SimpleIRCClient):
     while(True):
       # check connected
       if(not self.connection.is_connected()):
+        log.warn('Not connected, sleeping for 2 mins and attempting reconnect')
+        time.sleep(ATTEMPT_CONNECTION_RECONNECT_INTERVAL)
         self.connect()
       # check for scheduled items
       if(not self.scheduler.empty()):
