@@ -132,7 +132,7 @@ CHANNEL_LIST = [
   'kiwo'
 ]
 
-logging.basicConfig(format='%(funcName)s:%(lineno)i:%(message)s', level=logging.DEBUG)
+logging.basicConfig(format='%(funcName)s:%(lineno)i:%(message)s', level=logging.WARN)
 log = logging.getLogger('twitch_chat')
 # formatter = logging.Formatter('%(funcName)s:%(lineno)i:%(message)s')
 # ch = logging.StreamHandler()
